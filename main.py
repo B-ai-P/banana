@@ -3,7 +3,9 @@ import os
 import requests
 import base64
 import io
+import threading
 from dotenv import load_dotenv
+from flask import Flask
 
 load_dotenv()
 
@@ -89,4 +91,16 @@ async def banana_command(interaction: discord.Interaction, 프롬프트: str, �
         print(f"오류 발생: {e}")
         await interaction.followup.send(f"처리 중 오류가 발생했습니다: {e}")
 
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is running!"
+
+def run_web():
+    app.run(host="0.0.0.0", port=10000)
+
+threading.Thread(target=run_web).start()
+
+# 아래는 디스코드 봇 실행
 client.run(DISCORD_TOKEN)
