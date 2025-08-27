@@ -29,54 +29,77 @@ async def on_ready():
     await tree.sync()
     print("슬래시 커맨드가 동기화되었습니다.")
 
-@tree.command(name="바나나", description="AI에게 텍스트 또는 텍스트+이미지로 요청을 보냅니다.")
-async def banana_command(interaction: discord.Interaction, 프롬프트: str, 이미지: discord.Attachment = None):
+@tree.command(
+    name="바나나",
+    description="프롬프트와 함께 최대 2장의 이미지를 첨부할 수 있습니다."
+)
+async def banana_command(
+    interaction: discord.Interaction,
+    프롬프트: str,
+    이미지1: discord.Attachment = None,
+    이미지2: discord.Attachment = None
+):
     await interaction.response.defer()
 
     try:
+        # 기본 텍스트 파트
         parts = [{"text": 프롬프트}]
 
-        if 이미지:
-            if not 이미지.content_type.startswith('image/'):
-                await interaction.followup.send("이미지 파일만 업로드할 수 있습니다. (png, jpg 등)")
+        # 첨부 이미지를 리스트에 담아서 반복 처리
+        images = [이미지1, 이미지2]  # 최대 2개 슬롯
+        for img in images:
+            if img is None:
+                continue
+            if not img.content_type.startswith("image/"):
+                await interaction.followup.send(
+                    f"❌ {img.filename} 은(는) 이미지 파일이 아닙니다."
+                )
                 return
 
-            image_bytes = await 이미지.read()
-            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+            image_bytes = await img.read()
+            base64_image = base64.b64encode(image_bytes).decode("utf-8")
 
             parts.append({
                 "inlineData": {
-                    "mimeType": 이미지.content_type,
+                    "mimeType": img.content_type,
                     "data": base64_image
                 }
             })
 
+        # 실제 payload
         payload = {
-            "contents": [{"role": "user", "parts": parts}],
-            "safetySettings": [
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "OFF"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "OFF"},
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "OFF"},
-                {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "OFF"}
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": parts
+                }
             ],
-            "generationConfig": {"maxOutputTokens": 4444}
+            "generationConfig": {
+                "maxOutputTokens": 4000,
+                "temperature": 1
+            },
+            "safetySettings": [
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "OFF"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "OFF"},
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "OFF"},
+                {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "OFF"}
+            ]
         }
 
         response = requests.post(API_URL, headers=API_HEADERS, json=payload)
         response.raise_for_status()
-
         data = response.json()
 
         response_text = ""
         response_file = None
 
-        if 'candidates' in data and data['candidates']:
-            for part in data['candidates'][0]['content']['parts']:
-                if 'text' in part:
-                    response_text += part['text'] + "\n"
-                elif 'inlineData' in part:
-                    base64_data = part['inlineData']['data']
+        if "candidates" in data and data["candidates"]:
+            for part in data["candidates"][0]["content"]["parts"]:
+                if "text" in part:
+                    response_text += part["text"] + "\n"
+                elif "inlineData" in part:
+                    base64_data = part["inlineData"]["data"]
                     image_data = base64.b64decode(base64_data)
                     response_file = discord.File(io.BytesIO(image_data), filename="result.png")
 
@@ -85,11 +108,11 @@ async def banana_command(interaction: discord.Interaction, 프롬프트: str, �
         elif response_text:
             await interaction.followup.send(content=response_text)
         else:
-            await interaction.followup.send("AI로부터 응답을 받지 못했습니다.")
+            await interaction.followup.send("⚠️ AI로부터 응답을 받지 못했습니다.")
 
     except Exception as e:
-        print(f"오류 발생: {e}")
-        await interaction.followup.send(f"처리 중 오류가 발생했습니다: {e}")
+        print(f"에러 발생: {e}")
+        await interaction.followup.send(f"⚠️ 오류 발생: {e}")
 
 app = Flask(__name__)
 
