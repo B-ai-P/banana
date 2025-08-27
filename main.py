@@ -4,6 +4,7 @@ import requests
 import base64
 import io
 import threading
+import itertools
 from dotenv import load_dotenv
 from flask import Flask
 
@@ -12,11 +13,63 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 API_BEARER_TOKEN = os.getenv('API_BEARER_TOKEN')
 
-API_URL = os.getenv('API_URL')
-API_HEADERS = {
-    "Authorization": f"Bearer {API_BEARER_TOKEN}",
-    "Content-Type": "application/json"
-}
+API_BEARER_TOKEN = os.getenv("API_BEARER_TOKEN")
+API_KEY_ENV = os.getenv("API_KEY")   # "키1,키2,키3" 이런 식일 수 있음
+API_URL_ENV = os.getenv("API_URL")
+
+# API_KEY 관리
+API_KEYS = [k.strip() for k in API_KEY_ENV.split(",")] if API_KEY_ENV else []
+API_KEY_CYCLE = itertools.cycle(API_KEYS) if API_KEYS else None
+
+def make_headers():
+    headers = {"Content-Type": "application/json"}
+    if API_BEARER_TOKEN:  # bearer 있을 때만 붙임
+        headers["Authorization"] = f"Bearer {API_BEARER_TOKEN}"
+    return headers
+
+def send_request(payload):
+    global API_KEYS, API_KEY_CYCLE
+
+    headers = make_headers()
+
+    if API_KEYS:  
+        # API_KEY 모드 (고정 URL)
+        keys_to_try = list(API_KEYS)  # 현재 남은 키 만큼
+        for _ in range(len(keys_to_try)):
+            key = next(API_KEY_CYCLE)
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key={key}"
+            try:
+                resp = requests.post(url, headers=headers, json=payload, timeout=30)
+                data = resp.json()
+
+                # 키가 invalid일 때 제외
+                if resp.status_code == 400 and "error" in data:
+                    details = data["error"].get("details", [])
+                    if any(d.get("reason") == "API_KEY_INVALID" for d in details):
+                        print(f"⚠️ Invalid API key 제외: {key}")
+                        API_KEYS = [k for k in API_KEYS if k != key]
+                        API_KEY_CYCLE = itertools.cycle(API_KEYS) if API_KEYS else None
+                        continue  # 다음 키 시도
+
+                resp.raise_for_status()
+                return data
+
+            except Exception as e:
+                print(f"❌ {url} 요청 실패: {e}")
+                continue
+        raise RuntimeError("🚨 모든 API KEY 실패")
+
+    else:
+        # API_URL 모드 (API_KEY가 없을 때)
+        if not API_URL_ENV:
+            raise RuntimeError("🚨 API_KEY도 API_URL도 없음. 환경변수 확인하세요.")
+        try:
+            resp = requests.post(API_URL_ENV, headers=headers, json=payload, timeout=30)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            print(f"❌ {API_URL_ENV} 요청 실패: {e}")
+            raise
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -87,9 +140,7 @@ async def banana_command(
             ]
         }
 
-        response = requests.post(API_URL, headers=API_HEADERS, json=payload)
-        response.raise_for_status()
-        data = response.json()
+        data = send_request(payload)
 
         response_text = ""
         response_file = None
