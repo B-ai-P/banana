@@ -5,6 +5,7 @@ import base64
 import io
 import threading
 import itertools
+import aiohttp
 from dotenv import load_dotenv
 from flask import Flask
 
@@ -27,46 +28,47 @@ def make_headers():
         headers["Authorization"] = f"Bearer {API_BEARER_TOKEN}"
     return headers
 
-def send_request(payload):
+async def send_request(payload):
     global API_KEYS, API_KEY_CYCLE
-
     headers = make_headers()
 
     if API_KEYS:  
         # API_KEY 모드 (고정 URL)
-        keys_to_try = list(API_KEYS)  # 현재 남은 키 만큼
+        keys_to_try = list(API_KEYS)
         for _ in range(len(keys_to_try)):
             key = next(API_KEY_CYCLE)
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key={key}"
+            url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"gemini-2.5-flash-image-preview:generateContent?key={key}"
+            )
             try:
-                resp = requests.post(url, headers=headers, json=payload, timeout=30)
-                data = resp.json()
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(url, headers=headers, json=payload, timeout=30) as resp:
+                        data = await resp.json()
 
-                # 키가 invalid일 때 제외
-                if resp.status_code == 400 and "error" in data:
+                if resp.status == 400 and "error" in data:
                     details = data["error"].get("details", [])
                     if any(d.get("reason") == "API_KEY_INVALID" for d in details):
                         print(f"⚠️ Invalid API key 제외: {key}")
                         API_KEYS = [k for k in API_KEYS if k != key]
                         API_KEY_CYCLE = itertools.cycle(API_KEYS) if API_KEYS else None
-                        continue  # 다음 키 시도
+                        continue
 
-                resp.raise_for_status()
-                return data
+                return data  # ✅ 정상 응답 반환
 
             except Exception as e:
                 print(f"❌ {url} 요청 실패: {e}")
                 continue
         raise RuntimeError("🚨 모든 API KEY 실패")
 
-    else:
-        # API_URL 모드 (API_KEY가 없을 때)
+    else:  
+        # API_URL 모드
         if not API_URL_ENV:
-            raise RuntimeError("🚨 API_KEY도 API_URL도 없음. 환경변수 확인하세요.")
+            raise RuntimeError("🚨 API_KEY도 API_URL도 없음")
         try:
-            resp = requests.post(API_URL_ENV, headers=headers, json=payload, timeout=30)
-            resp.raise_for_status()
-            return resp.json()
+            async with aiohttp.ClientSession() as session:
+                async with session.post(API_URL_ENV, headers=headers, json=payload, timeout=30) as resp:
+                    return await resp.json()
         except Exception as e:
             print(f"❌ {API_URL_ENV} 요청 실패: {e}")
             raise
@@ -146,7 +148,7 @@ async def banana_command(
         print(json.dumps(payload, indent=2, ensure_ascii=False)[:2000])
 
         # 요청 보내기
-        data = send_request(payload)
+        data = await send_request(payload)
 
         # === 받은 응답 로그 ===
         print("===== RESPONSE DATA =====")
