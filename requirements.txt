@@ -3,3 +3,4 @@ requests
 python-dotenv
 aiodns
 flask
+aiohttp==3.9.5
