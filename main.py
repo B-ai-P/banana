@@ -122,7 +122,7 @@ async def banana_command(
     loop = asyncio.get_event_loop()
 
     try:
-        parts = [{"text": 프롬프트}]
+        parts = [{"text": f"Image generation prompt: {프롬프트}"}]
         images = [이미지1, 이미지2]
 
         for img in images:
