@@ -32,8 +32,14 @@ async def send_request(payload):
     global API_KEYS, API_KEY_CYCLE
     headers = make_headers()
 
+    # 항상 payload 로그
+    print("===== REQUEST PAYLOAD =====")
+    try:
+        print(json.dumps(payload, indent=2, ensure_ascii=False)[:2000])
+    except Exception as e:
+        print("⚠️ payload JSON dump 실패:", e)
+
     if API_KEYS:  
-        # API_KEY 모드 (고정 URL)
         keys_to_try = list(API_KEYS)
         for _ in range(len(keys_to_try)):
             key = next(API_KEY_CYCLE)
@@ -44,8 +50,16 @@ async def send_request(payload):
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.post(url, headers=headers, json=payload, timeout=30) as resp:
-                        data = await resp.json()
+                        raw_text = await resp.text()
+                        print("===== RAW RESPONSE =====")
+                        print(raw_text[:2000])   # 무조건 찍기
+                        try:
+                            data = await resp.json()
+                        except Exception as je:
+                            print("⚠️ JSON 파싱 실패:", je)
+                            data = {"error": "invalid_json", "raw": raw_text}
 
+                # 키 invalid 처리
                 if resp.status == 400 and "error" in data:
                     details = data["error"].get("details", [])
                     if any(d.get("reason") == "API_KEY_INVALID" for d in details):
@@ -53,8 +67,7 @@ async def send_request(payload):
                         API_KEYS = [k for k in API_KEYS if k != key]
                         API_KEY_CYCLE = itertools.cycle(API_KEYS) if API_KEYS else None
                         continue
-
-                return data  # ✅ 정상 응답 반환
+                return data
 
             except Exception as e:
                 print(f"❌ {url} 요청 실패: {e}")
@@ -62,13 +75,19 @@ async def send_request(payload):
         raise RuntimeError("🚨 모든 API KEY 실패")
 
     else:  
-        # API_URL 모드
         if not API_URL_ENV:
             raise RuntimeError("🚨 API_KEY도 API_URL도 없음")
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(API_URL_ENV, headers=headers, json=payload, timeout=30) as resp:
-                    return await resp.json()
+                    raw_text = await resp.text()
+                    print("===== RAW RESPONSE =====")
+                    print(raw_text[:2000])
+                    try:
+                        return await resp.json()
+                    except Exception as je:
+                        print("⚠️ JSON 파싱 실패:", je)
+                        return {"error": "invalid_json", "raw": raw_text}
         except Exception as e:
             print(f"❌ {API_URL_ENV} 요청 실패: {e}")
             raise
@@ -181,16 +200,18 @@ async def banana_command(
             await interaction.followup.send("⚠️ AI로부터 응답을 받지 못했습니다.")
 
     except Exception as e:
-        # 에러까지 풀로그
         import traceback, json
         print("===== ERROR START =====")
         print("예외 메시지:", e)
         traceback.print_exc()
         try:
-            print("=== 마지막 응답 데이터 ===")
-            print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])
-        except:
-            print("응답 JSON 없음")
+            if 'data' in locals():  # data 변수가 존재할 때만 출력
+                print("=== 마지막 응답 데이터 ===")
+                print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])
+            else:
+                print("data 변수 없음")
+        except Exception as log_e:
+            print("⚠️ data 출력 실패:", log_e)
         print("===== ERROR END =====")
 
         await interaction.followup.send("⚠️ 처리 중 오류가 발생했습니다.")
