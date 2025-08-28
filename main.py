@@ -94,7 +94,7 @@ async def banana_command(
     이미지1: discord.Attachment = None,
     이미지2: discord.Attachment = None
 ):
-    await interaction.response.defer()
+    await interaction.response.defer(thinking=True)
 
     try:
         # 기본 텍스트 파트
