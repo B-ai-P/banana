@@ -5,8 +5,6 @@ import base64
 import io
 import threading
 import itertools
-import traceback
-import json
 from dotenv import load_dotenv
 from flask import Flask
 
@@ -56,7 +54,7 @@ def send_request(payload):
                 resp.raise_for_status()
                 return data
 
-            
+            except Exception as e:
                 print(f"❌ {url} 요청 실패: {e}")
                 continue
         raise RuntimeError("🚨 모든 API KEY 실패")
