@@ -5,6 +5,8 @@ import base64
 import io
 import threading
 import itertools
+import traceback
+import json
 from dotenv import load_dotenv
 from flask import Flask
 
@@ -54,7 +56,7 @@ def send_request(payload):
                 resp.raise_for_status()
                 return data
 
-            except Exception as e:
+            
                 print(f"❌ {url} 요청 실패: {e}")
                 continue
         raise RuntimeError("🚨 모든 API KEY 실패")
@@ -162,8 +164,20 @@ async def banana_command(
             await interaction.followup.send("⚠️ AI로부터 응답을 받지 못했습니다.")
 
     except Exception as e:
-        print(f"에러 발생: {e}")
-        await interaction.followup.send(f"⚠️ 오류 발생: {e}")
+        import traceback, json
+        print("===== ERROR START =====")
+        print("예외 메시지:", e)
+        traceback.print_exc()   # 전체 파이썬 스택 로그 출력
+        # 혹시 data 변수가 만들어져 있으면 원문 그대로 찍기
+        try:
+            print("=== 응답 원문 ===")
+            print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])  # 길이 제한 2000자
+        except:
+            print("응답 JSON 없음 or data 변수 존재 안 함")
+        print("===== ERROR END =====")
+
+        # 유저한테는 심플 에러만 알림
+        await interaction.followup.send("⚠️ 처리 중 오류가 발생했습니다.")
 
 app = Flask(__name__)
 
