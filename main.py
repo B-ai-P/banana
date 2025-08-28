@@ -103,6 +103,8 @@ async def on_ready():
     await client.tree.sync()
     print("슬래시 커맨드가 동기화되었습니다.")
 
+# main.py 파일에서 이 함수 부분을 찾아서 교체하세요.
+
 @client.tree.command(
     name="바나나",
     description="프롬프트와 함께 최대 2장의 이미지를 첨부할 수 있습니다."
@@ -113,11 +115,16 @@ async def banana_command(
     이미지1: discord.Attachment = None,
     이미지2: discord.Attachment = None
 ):
+    # defer()를 최대한 빨리 실행하는 것이 중요
     await interaction.response.defer()
+    
+    # 현재 이벤트 루프를 가져옴
+    loop = asyncio.get_event_loop()
 
     try:
         parts = [{"text": 프롬프트}]
         images = [이미지1, 이미지2]
+
         for img in images:
             if img is None: continue
             if not img.content_type.startswith("image/"):
@@ -125,7 +132,18 @@ async def banana_command(
                 return
 
             image_bytes = await img.read()
-            base64_image = base64.b64encode(image_bytes).decode("utf-8")
+            
+            # --- 여기가 핵심적인 수정 부분 ---
+            # CPU를 많이 사용하는 b64encode 작업을 별도 스레드에서 실행하여 메인 루프를 막지 않도록 함
+            base64_image = await loop.run_in_executor(
+                None,  # 기본 스레드 풀 사용
+                base64.b64encode,
+                image_bytes
+            )
+            # decode는 매우 빠른 작업이라 그냥 둬도 됨
+            base64_image = base64_image.decode("utf-8")
+            # --- 수정 끝 ---
+            
             parts.append({
                 "inlineData": {
                     "mimeType": img.content_type,
@@ -145,7 +163,6 @@ async def banana_command(
             ]
         }
 
-        # 비동기 함수 호출로 변경
         data = await send_request_async(payload)
 
         response_text = ""
