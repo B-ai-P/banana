@@ -99,7 +99,7 @@ async def banana_command(
         parts = [{"text": 프롬프트}]
 
         # 첨부 이미지를 리스트에 담아서 반복 처리
-        images = [이미지1, 이미지2]  # 최대 2개 슬롯
+        images = [이미지1, 이미지2]
         for img in images:
             if img is None:
                 continue
@@ -140,41 +140,57 @@ async def banana_command(
             ]
         }
 
+        # === 보내는 요청 로그 ===
+        import json, traceback
+        print("===== REQUEST PAYLOAD =====")
+        print(json.dumps(payload, indent=2, ensure_ascii=False)[:2000])
+
+        # 요청 보내기
         data = send_request(payload)
 
+        # === 받은 응답 로그 ===
+        print("===== RESPONSE DATA =====")
+        print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])
+
+        # 응답 처리
         response_text = ""
-        response_file = None
+        files = []
 
         if "candidates" in data and data["candidates"]:
-            for part in data["candidates"][0]["content"]["parts"]:
-                if "text" in part:
-                    response_text += part["text"] + "\n"
-                elif "inlineData" in part:
-                    base64_data = part["inlineData"]["data"]
-                    image_data = base64.b64decode(base64_data)
-                    response_file = discord.File(io.BytesIO(image_data), filename="result.png")
+            cand = data["candidates"][0]
+            if "content" in cand and "parts" in cand["content"]:
+                for part in cand["content"]["parts"]:
+                    if "text" in part:
+                        response_text += part["text"] + "\n"
+                    elif "inlineData" in part:
+                        base64_data = part["inlineData"]["data"]
+                        image_data = base64.b64decode(base64_data)
+                        file_obj = io.BytesIO(image_data)
+                        files.append(discord.File(file_obj, filename="result.png"))
 
-        if response_file:
-            await interaction.followup.send(content=response_text, file=response_file)
+        if files and response_text:
+            await interaction.followup.send(content=response_text, files=files)
+        elif files:
+            await interaction.followup.send(files=files)
         elif response_text:
             await interaction.followup.send(content=response_text)
         else:
+            print("⚠️ 응답에 candidates/inlineData 없음 → AI가 비어 있는 응답을 반환")
             await interaction.followup.send("⚠️ AI로부터 응답을 받지 못했습니다.")
 
     except Exception as e:
+        # 에러까지 풀로그
         import traceback, json
         print("===== ERROR START =====")
         print("예외 메시지:", e)
-        traceback.print_exc()   # 전체 파이썬 스택 로그 출력
-        # 혹시 data 변수가 만들어져 있으면 원문 그대로 찍기
+        traceback.print_exc()
         try:
-            print("=== 응답 원문 ===")
-            print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])  # 길이 제한 2000자
+            print("=== 마지막 응답 데이터 ===")
+            print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])
         except:
-            print("응답 JSON 없음 or data 변수 존재 안 함")
+            print("응답 JSON 없음")
         print("===== ERROR END =====")
 
-        # 유저한테는 심플 에러만 알림
         await interaction.followup.send("⚠️ 처리 중 오류가 발생했습니다.")
 
 app = Flask(__name__)
