@@ -1,88 +1,109 @@
 import discord
 import os
-import requests
+import requests # 동기 함수는 유지하되, async 함수를 새로 만듭니다.
+import aiohttp # 비동기 HTTP 요청을 위해 추가
 import base64
 import io
-import threading
 import itertools
+import asyncio
 from dotenv import load_dotenv
 from flask import Flask
 
 load_dotenv()
 
+# --- 환경 변수 설정 ---
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 API_BEARER_TOKEN = os.getenv('API_BEARER_TOKEN')
-
-API_BEARER_TOKEN = os.getenv("API_BEARER_TOKEN")
-API_KEY_ENV = os.getenv("API_KEY")   # "키1,키2,키3" 이런 식일 수 있음
+API_KEY_ENV = os.getenv("API_KEY")
 API_URL_ENV = os.getenv("API_URL")
 
-# API_KEY 관리
+# --- API 키 관리 ---
 API_KEYS = [k.strip() for k in API_KEY_ENV.split(",")] if API_KEY_ENV else []
 API_KEY_CYCLE = itertools.cycle(API_KEYS) if API_KEYS else None
 
+# --- 헤더 생성 함수 ---
 def make_headers():
     headers = {"Content-Type": "application/json"}
-    if API_BEARER_TOKEN:  # bearer 있을 때만 붙임
+    if API_BEARER_TOKEN:
         headers["Authorization"] = f"Bearer {API_BEARER_TOKEN}"
     return headers
 
-def send_request(payload):
+# --- 비동기 API 요청 함수 (새로 추가 및 수정) ---
+async def send_request_async(payload):
     global API_KEYS, API_KEY_CYCLE
-
     headers = make_headers()
 
-    if API_KEYS:  
-        # API_KEY 모드 (고정 URL)
-        keys_to_try = list(API_KEYS)  # 현재 남은 키 만큼
-        for _ in range(len(keys_to_try)):
-            key = next(API_KEY_CYCLE)
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key={key}"
+    async with aiohttp.ClientSession() as session:
+        if API_KEYS:
+            keys_to_try = list(API_KEYS)
+            for _ in range(len(keys_to_try)):
+                key = next(API_KEY_CYCLE)
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key={key}"
+                try:
+                    async with session.post(url, headers=headers, json=payload, timeout=30) as resp:
+                        data = await resp.json()
+
+                        if resp.status == 400 and "error" in data:
+                            details = data["error"].get("details", [])
+                            if any(d.get("reason") == "API_KEY_INVALID" for d in details):
+                                print(f"⚠️ Invalid API key 제외: {key}")
+                                API_KEYS = [k for k in API_KEYS if k != key]
+                                API_KEY_CYCLE = itertools.cycle(API_KEYS) if API_KEYS else None
+                                continue
+
+                        resp.raise_for_status()
+                        return data
+                except Exception as e:
+                    print(f"❌ {url} 요청 실패: {e}")
+                    continue
+            raise RuntimeError("🚨 모든 API KEY 실패")
+        else:
+            if not API_URL_ENV:
+                raise RuntimeError("🚨 API_KEY도 API_URL도 없음. 환경변수 확인하세요.")
             try:
-                resp = requests.post(url, headers=headers, json=payload, timeout=30)
-                data = resp.json()
-
-                # 키가 invalid일 때 제외
-                if resp.status_code == 400 and "error" in data:
-                    details = data["error"].get("details", [])
-                    if any(d.get("reason") == "API_KEY_INVALID" for d in details):
-                        print(f"⚠️ Invalid API key 제외: {key}")
-                        API_KEYS = [k for k in API_KEYS if k != key]
-                        API_KEY_CYCLE = itertools.cycle(API_KEYS) if API_KEYS else None
-                        continue  # 다음 키 시도
-
-                resp.raise_for_status()
-                return data
-
+                async with session.post(API_URL_ENV, headers=headers, json=payload, timeout=30) as resp:
+                    resp.raise_for_status()
+                    return await resp.json()
             except Exception as e:
-                print(f"❌ {url} 요청 실패: {e}")
-                continue
-        raise RuntimeError("🚨 모든 API KEY 실패")
+                print(f"❌ {API_URL_ENV} 요청 실패: {e}")
+                raise
 
-    else:
-        # API_URL 모드 (API_KEY가 없을 때)
-        if not API_URL_ENV:
-            raise RuntimeError("🚨 API_KEY도 API_URL도 없음. 환경변수 확인하세요.")
-        try:
-            resp = requests.post(API_URL_ENV, headers=headers, json=payload, timeout=30)
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as e:
-            print(f"❌ {API_URL_ENV} 요청 실패: {e}")
-            raise
-
+# --- 디스코드 봇 설정 ---
 intents = discord.Intents.default()
 intents.message_content = True
-client = discord.Client(intents=intents)
-tree = discord.app_commands.CommandTree(client)
 
+class MyClient(discord.Client):
+    def __init__(self, *, intents: discord.Intents):
+        super().__init__(intents=intents)
+        self.tree = discord.app_commands.CommandTree(self)
+
+    async def setup_hook(self):
+        # Flask 앱을 백그라운드에서 실행
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, run_web)
+        print("Flask 웹 서버가 백그라운드에서 시작되었습니다.")
+
+client = MyClient(intents=intents)
+
+# --- Flask 웹 서버 설정 (봇을 깨우기 위함) ---
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is running and ready!"
+
+def run_web():
+    app.run(host="0.0.0.0", port=10000)
+
+
+# --- 디스코드 이벤트 및 명령어 ---
 @client.event
 async def on_ready():
     print(f'{client.user}으로 로그인 성공!')
-    await tree.sync()
+    await client.tree.sync()
     print("슬래시 커맨드가 동기화되었습니다.")
 
-@tree.command(
+@client.tree.command(
     name="바나나",
     description="프롬프트와 함께 최대 2장의 이미지를 첨부할 수 있습니다."
 )
@@ -95,23 +116,16 @@ async def banana_command(
     await interaction.response.defer()
 
     try:
-        # 기본 텍스트 파트
         parts = [{"text": 프롬프트}]
-
-        # 첨부 이미지를 리스트에 담아서 반복 처리
-        images = [이미지1, 이미지2]  # 최대 2개 슬롯
+        images = [이미지1, 이미지2]
         for img in images:
-            if img is None:
-                continue
+            if img is None: continue
             if not img.content_type.startswith("image/"):
-                await interaction.followup.send(
-                    f"❌ {img.filename} 은(는) 이미지 파일이 아닙니다."
-                )
+                await interaction.followup.send(f"❌ {img.filename} 은(는) 이미지 파일이 아닙니다.")
                 return
 
             image_bytes = await img.read()
             base64_image = base64.b64encode(image_bytes).decode("utf-8")
-
             parts.append({
                 "inlineData": {
                     "mimeType": img.content_type,
@@ -119,18 +133,9 @@ async def banana_command(
                 }
             })
 
-        # 실제 payload
         payload = {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": parts
-                }
-            ],
-            "generationConfig": {
-                "maxOutputTokens": 4000,
-                "temperature": 1
-            },
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"maxOutputTokens": 4000, "temperature": 1},
             "safetySettings": [
                 {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "OFF"},
                 {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "OFF"},
@@ -140,7 +145,8 @@ async def banana_command(
             ]
         }
 
-        data = send_request(payload)
+        # 비동기 함수 호출로 변경
+        data = await send_request_async(payload)
 
         response_text = ""
         response_file = None
@@ -165,16 +171,5 @@ async def banana_command(
         print(f"에러 발생: {e}")
         await interaction.followup.send(f"⚠️ 오류 발생: {e}")
 
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "Bot is running!"
-
-def run_web():
-    app.run(host="0.0.0.0", port=10000)
-
-threading.Thread(target=run_web).start()
-
-# 아래는 디스코드 봇 실행
+# --- 봇 실행 ---
 client.run(DISCORD_TOKEN)
