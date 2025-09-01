@@ -181,33 +181,45 @@ async def banana_command(
                     image_data = base64.b64decode(base64_data)
                     response_file = discord.File(io.BytesIO(image_data), filename="result.png")
 
-        # 사용자 요청 정보를 코드 블록으로 구성
-        user_request_block = f"```\n유저 프롬프트: {프롬프트}"
+        # Embed로 사용자 요청 정보를 깔끔하게 표시
+        embed = discord.Embed(
+            title="📝 사용자 요청",
+            description=f"**프롬프트:** {프롬프트}",
+            color=0x5865F2  # Discord 블랙 색상
+        )
         
         # 첨부 이미지 정보 추가
         if user_images:
-            attachment_info = f"\n({', '.join([f'첨부{i+1}' for i in range(len(user_images))])})"
-            user_request_block += attachment_info
+            attachment_names = [f"첨부{i+1}" for i in range(len(user_images))]
+            embed.add_field(
+                name="📎 첨부파일", 
+                value=", ".join(attachment_names), 
+                inline=False
+            )
         
-        user_request_block += "\n```"
-        
-        # 최종 응답 메시지 구성
-        if response_text:
-            final_response = user_request_block + "\n" + response_text
-        else:
-            final_response = user_request_block
+        # 요청한 사용자 정보 표시
+        embed.set_footer(text=f"요청자: {interaction.user.display_name}")
 
         # 전송할 파일 리스트 구성 (사용자 첨부 이미지 + AI 생성 이미지)
         files_to_send = user_images.copy()
         if response_file:
             files_to_send.append(response_file)
 
-        if files_to_send:
-            await interaction.followup.send(content=final_response, files=files_to_send)
-        elif final_response:
-            await interaction.followup.send(content=final_response)
+        # 응답 텍스트가 있으면 embed 아래에, 없으면 embed만 전송
+        if response_text:
+            final_response = f"**🤖 AI 응답:**\n{response_text}"
         else:
-            await interaction.followup.send("⚠️ AI로부터 응답을 받지 못했습니다.")
+            final_response = None
+
+        if files_to_send:
+            if final_response:
+                await interaction.followup.send(embed=embed, content=final_response, files=files_to_send)
+            else:
+                await interaction.followup.send(embed=embed, files=files_to_send)
+        elif final_response:
+            await interaction.followup.send(embed=embed, content=final_response)
+        else:
+            await interaction.followup.send(embed=embed, content="⚠️ AI로부터 응답을 받지 못했습니다.")
 
     except Exception as e:
         print(f"에러 발생: {e}")
