@@ -152,11 +152,6 @@ async def banana_command(
                 }
             })
 
-        # 첨부파일이 있으면 먼저 사용자 요청 정보를 보냄
-        if user_images:
-            user_request_message = f"```\n유저 프롬프트: {프롬프트}\n```"
-            await interaction.followup.send(content=user_request_message, files=user_images)
-
         payload = {
             "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {"maxOutputTokens": 4000, "temperature": 1},
@@ -169,6 +164,7 @@ async def banana_command(
             ]
         }
 
+        # 먼저 API 요청을 완료하고 응답을 받음
         data = await send_request_async(payload)
 
         response_text = ""
@@ -183,9 +179,17 @@ async def banana_command(
                     image_data = base64.b64decode(base64_data)
                     response_file = discord.File(io.BytesIO(image_data), filename="result.png")
 
-        # AI 응답 전송
+        # 이제 응답이 준비되었으니 연속으로 메시지 전송
         if user_images:
-            # 이미 첫 번째 메시지에서 사용자 요청을 보냈으므로, AI 응답만 보냄
+            # 첨부파일이 있으면 2번 나눠서 전송
+            # 1. 사용자 요청 + 첨부파일
+            user_request_message = f"```\n유저 프롬프트: {프롬프트}\n```"
+            await interaction.followup.send(content=user_request_message, files=user_images)
+            
+            # 0.3초 딜레이
+            await asyncio.sleep(0.3)
+            
+            # 2. AI 응답
             if response_file:
                 await interaction.followup.send(content=response_text if response_text else "", file=response_file)
             elif response_text:
@@ -193,7 +197,7 @@ async def banana_command(
             else:
                 await interaction.followup.send("⚠️ AI로부터 응답을 받지 못했습니다.")
         else:
-            # 첨부파일이 없으면 한 번에 보냄 (기존 방식)
+            # 첨부파일이 없으면 한 번에 전송
             user_request_message = f"```\n유저 프롬프트: {프롬프트}\n```\n"
             final_message = user_request_message + (response_text if response_text else "")
             
