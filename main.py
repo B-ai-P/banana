@@ -103,8 +103,6 @@ async def on_ready():
     await client.tree.sync()
     print("슬래시 커맨드가 동기화되었습니다.")
 
-# main.py 파일에서 이 함수 부분을 찾아서 교체하세요.
-
 @client.tree.command(
     name="바나나",
     description="프롬프트와 함께 최대 2장의 이미지를 첨부할 수 있습니다."
@@ -124,6 +122,9 @@ async def banana_command(
     try:
         parts = [{"text": f"Image generation prompt: {프롬프트}"}]
         images = [이미지1, 이미지2]
+        
+        # 사용자 입력 이미지를 저장할 리스트 (응답에 함께 표시하기 위함)
+        user_images = []
 
         for img in images:
             if img is None: continue
@@ -132,6 +133,9 @@ async def banana_command(
                 return
 
             image_bytes = await img.read()
+            
+            # 사용자가 첨부한 원본 이미지 저장 (응답에 표시하기 위함)
+            user_images.append(discord.File(io.BytesIO(image_bytes), filename=img.filename))
             
             # --- 여기가 핵심적인 수정 부분 ---
             # CPU를 많이 사용하는 b64encode 작업을 별도 스레드에서 실행하여 메인 루프를 막지 않도록 함
@@ -177,10 +181,31 @@ async def banana_command(
                     image_data = base64.b64decode(base64_data)
                     response_file = discord.File(io.BytesIO(image_data), filename="result.png")
 
+        # 사용자 요청 정보를 코드 블록으로 구성
+        user_request_block = f"```\n유저 프롬프트: {프롬프트}"
+        
+        # 첨부 이미지 정보 추가
+        if user_images:
+            attachment_info = f"\n({', '.join([f'첨부{i+1}' for i in range(len(user_images))])})"
+            user_request_block += attachment_info
+        
+        user_request_block += "\n```"
+        
+        # 최종 응답 메시지 구성
+        if response_text:
+            final_response = user_request_block + "\n" + response_text
+        else:
+            final_response = user_request_block
+
+        # 전송할 파일 리스트 구성 (사용자 첨부 이미지 + AI 생성 이미지)
+        files_to_send = user_images.copy()
         if response_file:
-            await interaction.followup.send(content=response_text, file=response_file)
-        elif response_text:
-            await interaction.followup.send(content=response_text)
+            files_to_send.append(response_file)
+
+        if files_to_send:
+            await interaction.followup.send(content=final_response, files=files_to_send)
+        elif final_response:
+            await interaction.followup.send(content=final_response)
         else:
             await interaction.followup.send("⚠️ AI로부터 응답을 받지 못했습니다.")
 
