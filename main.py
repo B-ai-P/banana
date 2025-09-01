@@ -123,7 +123,7 @@ async def banana_command(
         parts = [{"text": f"Image generation prompt: {프롬프트}"}]
         images = [이미지1, 이미지2]
         
-        # 사용자 입력 이미지를 저장할 리스트 (응답에 함께 표시하기 위함)
+        # 사용자 입력 이미지를 저장할 리스트
         user_images = []
 
         for img in images:
@@ -134,19 +134,16 @@ async def banana_command(
 
             image_bytes = await img.read()
             
-            # 사용자가 첨부한 원본 이미지 저장 (응답에 표시하기 위함)
+            # 사용자가 첨부한 원본 이미지 저장
             user_images.append(discord.File(io.BytesIO(image_bytes), filename=img.filename))
             
-            # --- 여기가 핵심적인 수정 부분 ---
-            # CPU를 많이 사용하는 b64encode 작업을 별도 스레드에서 실행하여 메인 루프를 막지 않도록 함
+            # base64 인코딩
             base64_image = await loop.run_in_executor(
-                None,  # 기본 스레드 풀 사용
+                None,
                 base64.b64encode,
                 image_bytes
             )
-            # decode는 매우 빠른 작업이라 그냥 둬도 됨
             base64_image = base64_image.decode("utf-8")
-            # --- 수정 끝 ---
             
             parts.append({
                 "inlineData": {
@@ -154,6 +151,11 @@ async def banana_command(
                     "data": base64_image
                 }
             })
+
+        # 첨부파일이 있으면 먼저 사용자 요청 정보를 보냄
+        if user_images:
+            user_request_message = f"```\n유저 프롬프트: {프롬프트}\n```"
+            await interaction.followup.send(content=user_request_message, files=user_images)
 
         payload = {
             "contents": [{"role": "user", "parts": parts}],
@@ -181,45 +183,26 @@ async def banana_command(
                     image_data = base64.b64decode(base64_data)
                     response_file = discord.File(io.BytesIO(image_data), filename="result.png")
 
-        # Embed로 사용자 요청 정보를 깔끔하게 표시
-        embed = discord.Embed(
-            title="📝 사용자 요청",
-            description=f"**프롬프트:** {프롬프트}",
-            color=0x5865F2  # Discord 블랙 색상
-        )
-        
-        # 첨부 이미지 정보 추가
+        # AI 응답 전송
         if user_images:
-            attachment_names = [f"첨부{i+1}" for i in range(len(user_images))]
-            embed.add_field(
-                name="📎 첨부파일", 
-                value=", ".join(attachment_names), 
-                inline=False
-            )
-        
-        # 요청한 사용자 정보 표시
-        embed.set_footer(text=f"요청자: {interaction.user.display_name}")
-
-        # 전송할 파일 리스트 구성 (사용자 첨부 이미지 + AI 생성 이미지)
-        files_to_send = user_images.copy()
-        if response_file:
-            files_to_send.append(response_file)
-
-        # 응답 텍스트가 있으면 embed 아래에, 없으면 embed만 전송
-        if response_text:
-            final_response = f"**🤖 AI 응답:**\n{response_text}"
-        else:
-            final_response = None
-
-        if files_to_send:
-            if final_response:
-                await interaction.followup.send(embed=embed, content=final_response, files=files_to_send)
+            # 이미 첫 번째 메시지에서 사용자 요청을 보냈으므로, AI 응답만 보냄
+            if response_file:
+                await interaction.followup.send(content=response_text if response_text else "", file=response_file)
+            elif response_text:
+                await interaction.followup.send(content=response_text)
             else:
-                await interaction.followup.send(embed=embed, files=files_to_send)
-        elif final_response:
-            await interaction.followup.send(embed=embed, content=final_response)
+                await interaction.followup.send("⚠️ AI로부터 응답을 받지 못했습니다.")
         else:
-            await interaction.followup.send(embed=embed, content="⚠️ AI로부터 응답을 받지 못했습니다.")
+            # 첨부파일이 없으면 한 번에 보냄 (기존 방식)
+            user_request_message = f"```\n유저 프롬프트: {프롬프트}\n```\n"
+            final_message = user_request_message + (response_text if response_text else "")
+            
+            if response_file:
+                await interaction.followup.send(content=final_message, file=response_file)
+            elif final_message.strip():
+                await interaction.followup.send(content=final_message)
+            else:
+                await interaction.followup.send("⚠️ AI로부터 응답을 받지 못했습니다.")
 
     except Exception as e:
         print(f"에러 발생: {e}")
