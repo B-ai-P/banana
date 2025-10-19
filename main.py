@@ -120,7 +120,16 @@ async def banana_command(
     loop = asyncio.get_event_loop()
 
     try:
-        parts = [{"text": f"Image generation prompt: {프롬프트}"}]
+        parts = [{
+            "text": f"""
+        SYSTEM: You are an image generation model.
+        You must not write any text responses, captions, or explanations.
+        Only generate and return an image based on the description below.
+        
+        IMAGE PROMPT:
+        {프롬프트}
+        """
+        }]
         images = [이미지1, 이미지2]
         
         # 사용자 입력 이미지를 저장할 리스트
