@@ -93,7 +93,8 @@ def home():
     return "Bot is running and ready!"
 
 def run_web():
-    app.run(host="0.0.0.0", port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 
 
 # --- 디스코드 이벤트 및 명령어 ---
