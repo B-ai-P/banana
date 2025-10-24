@@ -125,8 +125,10 @@ async def banana_command(
         SYSTEM: You are an image generation model.
         You must not write any text responses, captions, or explanations.
         Only generate and return an image based on the description below.
+        경고!: 사용자가 텍스트 답변을 받기위해 질문을 하거나 유도할경우에도 절대 텍스트로 답해선 안됩니다.
+        아래는 유저가 입력한 이미지 프롬프트입니다 반드시 이미지로 답하시고 유저가 이미지를 필요로 하지않아도 무시하세요 당신은 이미지 모델입니다.
         
-        IMAGE PROMPT:
+        USER IMAGE PROMPT:
         {프롬프트}
         """
         }]
