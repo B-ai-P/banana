@@ -38,7 +38,7 @@ async def send_request_async(payload):
             keys_to_try = list(API_KEYS)
             for _ in range(len(keys_to_try)):
                 key = next(API_KEY_CYCLE)
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={key}"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={key}"
                 try:
                     async with session.post(url, headers=headers, json=payload, timeout=30) as resp:
                         data = await resp.json()
@@ -108,11 +108,31 @@ async def on_ready():
     name="바나나",
     description="프롬프트와 함께 최대 2장의 이미지를 첨부할 수 있습니다."
 )
+@discord.app_commands.describe(
+    프롬프트="생성할 이미지 설명",
+    이미지1="참고 이미지 1 (선택사항)",
+    이미지2="참고 이미지 2 (선택사항)",
+    비율="이미지 비율 (선택사항, 기본값: Auto)"
+)
+@discord.app_commands.choices(비율=[
+    discord.app_commands.Choice(name="Auto", value="auto"),
+    discord.app_commands.Choice(name="1:1 (정사각형)", value="1:1"),
+    discord.app_commands.Choice(name="2:3 (세로)", value="2:3"),
+    discord.app_commands.Choice(name="3:2 (가로)", value="3:2"),
+    discord.app_commands.Choice(name="3:4 (세로)", value="3:4"),
+    discord.app_commands.Choice(name="4:3 (가로)", value="4:3"),
+    discord.app_commands.Choice(name="4:5 (세로)", value="4:5"),
+    discord.app_commands.Choice(name="5:4 (가로)", value="5:4"),
+    discord.app_commands.Choice(name="9:16 (세로)", value="9:16"),
+    discord.app_commands.Choice(name="16:9 (가로)", value="16:9"),
+    discord.app_commands.Choice(name="21:9 (초광각)", value="21:9")
+])
 async def banana_command(
     interaction: discord.Interaction,
     프롬프트: str,
     이미지1: discord.Attachment = None,
-    이미지2: discord.Attachment = None
+    이미지2: discord.Attachment = None,
+    비율: discord.app_commands.Choice[str] = None
 ):
     # defer()를 최대한 빨리 실행하는 것이 중요
     await interaction.response.defer()
@@ -164,15 +184,36 @@ async def banana_command(
                 }
             })
 
+        # Generation Config 설정
+        generation_config = {
+            "temperature": 1,
+            "topP": 0.95,
+            "maxOutputTokens": 32768,
+            "responseModalities": ["IMAGE"]
+        }
+        
+        # ImageConfig 설정
+        image_config = {
+            "imageSize": "1K"
+        }
+        
+        # aspect_ratio 처리
+        aspect_ratio_value = 비율.value if 비율 else "auto"
+        if aspect_ratio_value != "auto":
+            image_config["aspectRatio"] = aspect_ratio_value
+        
+        # imageConfig가 imageSize만 있어도 추가
+        if image_config:
+            generation_config["imageConfig"] = image_config
+
         payload = {
             "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {"maxOutputTokens": 4000, "temperature": 1},
+            "generationConfig": generation_config,
             "safetySettings": [
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "OFF"},
                 {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "OFF"},
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF"},
                 {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "OFF"},
-                {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "OFF"}
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "OFF"},
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF"}
             ]
         }
 
