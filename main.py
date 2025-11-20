@@ -21,6 +21,38 @@ API_URL_ENV = os.getenv("API_URL")
 API_KEYS = [k.strip() for k in API_KEY_ENV.split(",")] if API_KEY_ENV else []
 API_KEY_CYCLE = itertools.cycle(API_KEYS) if API_KEYS else None
 
+# --- 보안: API 키/토큰 마스킹 함수 ---
+def mask_api_key(key):
+    """API 키를 마스킹 처리 (예: AIza****1234)"""
+    if not key or len(key) < 8:
+        return "****"
+    return f"{key[:4]}****{key[-4:]}"
+
+def mask_bearer_token(token):
+    """Bearer 토큰을 마스킹 처리"""
+    if not token or len(token) < 8:
+        return "****"
+    return f"{token[:6]}****{token[-4:]}"
+
+def mask_url(url):
+    """URL에서 API 키 부분을 마스킹 처리"""
+    if "key=" in url:
+        parts = url.split("key=")
+        if len(parts) > 1:
+            key_part = parts[1].split("&")[0]  # 다른 파라미터가 있을 경우 대비
+            masked_key = mask_api_key(key_part)
+            return url.replace(f"key={key_part}", f"key={masked_key}")
+    return url
+
+def mask_sensitive_url(url):
+    """민감한 URL을 안전하게 표시 (도메인만 표시)"""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        return f"{parsed.scheme}://{parsed.netloc}/***"
+    except:
+        return "https://***"
+
 # --- 헤더 생성 함수 ---
 def make_headers():
     headers = {"Content-Type": "application/json"}
@@ -28,7 +60,7 @@ def make_headers():
         headers["Authorization"] = f"Bearer {API_BEARER_TOKEN}"
     return headers
 
-# --- 비동기 API 요청 함수 (새로 추가 및 수정) ---
+# --- 비동기 API 요청 함수 (보안 강화) ---
 async def send_request_async(payload):
     global API_KEYS, API_KEY_CYCLE
     headers = make_headers()
@@ -46,7 +78,9 @@ async def send_request_async(payload):
                         if resp.status == 400 and "error" in data:
                             details = data["error"].get("details", [])
                             if any(d.get("reason") == "API_KEY_INVALID" for d in details):
-                                print(f"⚠️ Invalid API key 제외: {key}")
+                                # 보안: API 키를 마스킹하여 로그 출력
+                                masked_key = mask_api_key(key)
+                                print(f"⚠️ Invalid API key 제외: {masked_key}")
                                 API_KEYS = [k for k in API_KEYS if k != key]
                                 API_KEY_CYCLE = itertools.cycle(API_KEYS) if API_KEYS else None
                                 continue
@@ -54,19 +88,27 @@ async def send_request_async(payload):
                         resp.raise_for_status()
                         return data
                 except Exception as e:
-                    print(f"❌ {url} 요청 실패: {e}")
+                    # 보안: URL을 마스킹하여 로그 출력
+                    masked_url = mask_url(url)
+                    print(f"❌ {masked_url} 요청 실패: {type(e).__name__}")
                     continue
-            raise RuntimeError("🚨 모든 API KEY 실패")
+            raise RuntimeError("API_REQUEST_FAILED")  # 일반적인 에러 메시지
         else:
             if not API_URL_ENV:
-                raise RuntimeError("🚨 API_KEY도 API_URL도 없음. 환경변수 확인하세요.")
+                raise RuntimeError("API_CONFIGURATION_ERROR")
             try:
                 async with session.post(API_URL_ENV, headers=headers, json=payload, timeout=30) as resp:
                     resp.raise_for_status()
                     return await resp.json()
             except Exception as e:
-                print(f"❌ {API_URL_ENV} 요청 실패: {e}")
-                raise
+                # 보안: URL과 토큰을 마스킹하여 로그 출력
+                masked_url = mask_sensitive_url(API_URL_ENV)
+                bearer_info = ""
+                if API_BEARER_TOKEN:
+                    masked_token = mask_bearer_token(API_BEARER_TOKEN)
+                    bearer_info = f" (Bearer: {masked_token})"
+                print(f"❌ {masked_url}{bearer_info} 요청 실패: {type(e).__name__}")
+                raise RuntimeError("API_REQUEST_FAILED")
 
 # --- 디스코드 봇 설정 ---
 intents = discord.Intents.default()
@@ -261,9 +303,20 @@ async def banana_command(
             else:
                 await interaction.followup.send("⚠️ AI로부터 응답을 받지 못했습니다.")
 
+    except RuntimeError as e:
+        # 보안: 일반적인 에러 메시지만 사용자에게 전송
+        error_messages = {
+            "API_REQUEST_FAILED": "⚠️ 이미지 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+            "API_CONFIGURATION_ERROR": "⚠️ 봇 설정에 문제가 있습니다. 관리자에게 문의해주세요."
+        }
+        user_message = error_messages.get(str(e), "⚠️ 일시적인 오류가 발생했습니다.")
+        # 서버 로그에는 실제 에러 기록
+        print(f"RuntimeError 발생: {e}")
+        await interaction.followup.send(user_message)
     except Exception as e:
-        print(f"에러 발생: {e}")
-        await interaction.followup.send(f"⚠️ 오류 발생: {e}")
+        # 보안: 예상치 못한 에러도 일반적인 메시지로 처리
+        print(f"예상치 못한 에러 발생: {type(e).__name__} - {str(e)[:100]}")  # 로그는 100자로 제한
+        await interaction.followup.send("⚠️ 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
 
 # --- 봇 실행 ---
 client.run(DISCORD_TOKEN)
