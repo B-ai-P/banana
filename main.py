@@ -267,21 +267,30 @@ async def banana_command(
                     image_data = base64.b64decode(base64_data)
                     response_file = discord.File(io.BytesIO(image_data), filename="result.png")
 
-        # ✅ 메시지 수정 및 새 메시지 전송 (시간 제한 없음)
+        # ✅ 이미지 첨부한 경우
         if user_images:
-            # 사용자가 이미지 첨부한 경우
             user_request_message = f"```\n유저 프롬프트: {프롬프트}\n```"
             await initial_message.edit(content=user_request_message, attachments=user_images)
             
             await asyncio.sleep(0.3)
             
-            # ✅ channel.send() 사용 (인터랙션 토큰 안 씀)
+            # ✅ reference 파라미터로 답장 연결!
             if response_file:
-                await channel.send(content=response_text if response_text else "✅ 완성!", file=response_file)
+                await channel.send(
+                    content=response_text if response_text else "✅ 완성!", 
+                    file=response_file,
+                    reference=initial_message  # ← 이게 핵심!
+                )
             elif response_text:
-                await channel.send(content=response_text)
+                await channel.send(
+                    content=response_text,
+                    reference=initial_message
+                )
             else:
-                await channel.send("⚠️ AI로부터 응답을 받지 못했습니다.")
+                await channel.send(
+                    content="⚠️ AI로부터 응답을 받지 못했습니다.",
+                    reference=initial_message
+                )
         else:
             # 사용자가 이미지 첨부 안 한 경우
             user_request_message = f"```\n유저 프롬프트: {프롬프트}\n```\n"
