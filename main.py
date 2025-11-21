@@ -97,7 +97,7 @@ async def send_request_async(payload):
             if not API_URL_ENV:
                 raise RuntimeError("API_CONFIGURATION_ERROR")
             try:
-                async with session.post(API_URL_ENV, headers=headers, json=payload, timeout=30) as resp:
+                async with session.post(API_URL_ENV, headers=headers, json=payload, timeout=120) as resp:
                     resp.raise_for_status()
                     return await resp.json()
             except Exception as e:
