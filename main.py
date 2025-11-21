@@ -72,7 +72,7 @@ async def send_request_async(payload):
                 key = next(API_KEY_CYCLE)
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={key}"
                 try:
-                    async with session.post(url, headers=headers, json=payload, timeout=30) as resp:
+                    async with session.post(url, headers=headers, json=payload, timeout=300) as resp:
                         data = await resp.json()
 
                         if resp.status == 400 and "error" in data:
@@ -97,7 +97,7 @@ async def send_request_async(payload):
             if not API_URL_ENV:
                 raise RuntimeError("API_CONFIGURATION_ERROR")
             try:
-                async with session.post(API_URL_ENV, headers=headers, json=payload, timeout=120) as resp:
+                async with session.post(API_URL_ENV, headers=headers, json=payload, timeout=300) as resp:
                     resp.raise_for_status()
                     return await resp.json()
             except Exception as e:
